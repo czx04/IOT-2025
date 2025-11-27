@@ -1,7 +1,7 @@
 import { Redirect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, TextInput, View, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
-import Svg, { Path, Circle, G, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 
 import { ActivityIndicator } from '@/components/nativewindui/ActivityIndicator';
 import { Text } from '@/components/nativewindui/Text';
@@ -15,6 +15,15 @@ function HeartIcon({ size = 24, color = '#FF9A8B' }: { size?: number; color?: st
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <Path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+    </Svg>
+  );
+}
+
+// Drop icon for water
+function DropIcon({ size = 24, color = '#38BDF8' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <Path d="M12 2c0 0-7 8.5-7 14.5 0 4.14 3.36 7.5 7.5 7.5s7.5-3.36 7.5-7.5C19.5 10.5 12 2 12 2z" />
     </Svg>
   );
 }
@@ -141,11 +150,42 @@ export default function ProfileScreen() {
     }
   }, [user, name, day, month, year, gender, height, weight, updateProfile, clearError]);
 
+  // --- Calculation Helpers ---
+  const calculateAge = (dateString?: string) => {
+    if (!dateString) return 20; // Default age if missing
+    const today = new Date();
+    const birthDate = new Date(dateString);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
   const calculateBMI = (h: number, w: number) => {
     const heightInMeters = h / 100;
     return Math.round((w / (heightInMeters * heightInMeters)) * 10) / 10;
   };
 
+  const getBMIStatus = (bmi: number) => {
+    if (bmi < 18.5) return { label: 'Thiếu cân', color: '#EAB308' }; 
+    if (bmi < 25) return { label: 'Bình thường', color: '#10B981' };
+    if (bmi < 30) return { label: 'Thừa cân', color: '#F97316' }; 
+    return { label: 'Béo phì', color: '#EF4444' }; 
+  };
+
+  const calculateBFP = (bmi: number, age: number, gender: string) => {
+    // Formula: (1.20 * BMI) + (0.23 * Age) - (10.8 * sex) - 5.4
+    // Sex: 1 for male, 0 for female.
+    const sexFactor = gender === 'male' ? 1 : 0;
+    let bfp = (1.20 * bmi) + (0.23 * age) - (10.8 * sexFactor) - 5.4;
+    return Math.max(0, Math.round(bfp * 10) / 10);
+  };
+
+  const calculateWaterNeed = (weight: number) => {
+    return Math.round(weight * 0.033 * 100) / 100;
+  };
 
   if (isInitializing) {
     return (
@@ -158,6 +198,15 @@ export default function ProfileScreen() {
   if (!isAuthenticated) {
     return <Redirect href="/login" />;
   }
+
+  // --- View Mode Calculations ---
+  const viewHeight = user?.height || 170;
+  const viewWeight = user?.weight || 60;
+  const viewBMI = calculateBMI(viewHeight, viewWeight);
+  const viewBMIStatus = getBMIStatus(viewBMI);
+  const viewAge = calculateAge(user?.date_of_birth);
+  const viewBFP = calculateBFP(viewBMI, viewAge, user?.gender || 'male');
+  const viewWater = calculateWaterNeed(viewWeight);
 
   // Edit Mode
   if (isEditing) {
@@ -266,7 +315,7 @@ export default function ProfileScreen() {
                   Nữ
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              {/* <TouchableOpacity
                 style={[styles.genderButton, gender === 'other' && styles.genderButtonActive]}
                 onPress={() => setGender('other')}
                 disabled={isSaving}
@@ -274,7 +323,7 @@ export default function ProfileScreen() {
                 <Text style={[styles.genderText, gender === 'other' && styles.genderTextActive]}>
                   Khác
                 </Text>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
             </View>
           </View>
 
@@ -368,7 +417,56 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      
+      {/* NEW: Health Assessment Card */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={styles.iconCircle}>
+            <HeartIcon size={18} color="#FFF" />
+          </View>
+          <Text style={styles.cardTitle}>Đánh giá tổng quan</Text>
+        </View>
+        
+        {/* BMI Row */}
+        <View style={styles.statRow}>
+          <View style={styles.statLeft}>
+            <Text style={styles.statLabel}>Chỉ số BMI</Text>
+            <Text style={[styles.statStatus, { color: viewBMIStatus.color }]}>
+              {viewBMIStatus.label}
+            </Text>
+          </View>
+          <View style={styles.statRight}>
+            <Text style={styles.statValue}>{viewBMI}</Text>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
+        {/* Body Fat Row */}
+        <View style={styles.statRow}>
+           <View style={styles.statLeft}>
+            <Text style={styles.statLabel}>Tỷ lệ mỡ (BFP)</Text>
+            <Text style={styles.statSubText}>Ước tính theo BMI & Tuổi</Text>
+          </View>
+          <View style={styles.statRight}>
+            <Text style={styles.statValue}>{viewBFP}%</Text>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
+        {/* Water Row */}
+        <View style={styles.statRow}>
+          <View style={styles.statLeft}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+               <Text style={styles.statLabel}>Nước cần uống</Text>
+            </View>
+            <Text style={styles.statSubText}>Mỗi ngày</Text>
+          </View>
+          <View style={styles.statRight}>
+            <Text style={[styles.statValue, { color: '#38BDF8' }]}>{viewWater} L</Text>
+          </View>
+        </View>
+      </View>
 
       {/* Info Cards */}
       <View style={styles.card}>
@@ -467,10 +565,6 @@ const styles = StyleSheet.create({
     borderColor: '#FFF',
     backgroundColor: '#FFF',
   },
-  heartContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
   headerInfo: {
     alignItems: 'center',
     marginBottom: 16,
@@ -495,69 +589,6 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
-  },
-  bmiCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-
-    borderWidth: 2,
-    borderColor: '#FFC9BE',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  bmiLeft: {
-    flex: 1,
-  },
-  bmiLabel: {
-    fontSize: 14,
-    color: '#64748B',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  bmiValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
-  },
-  bmiValue: {
-    fontSize: 36,
-    fontWeight: '700',
-    color: '#1A1A1A',
-  },
-  bmiStatus: {
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  bmiStatusText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  bmiSubtext: {
-    fontSize: 13,
-    color: '#64748B',
-  },
-  bmiCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFF0EC',
-  },
-  bmiCircleText: {
-    fontSize: 24,
-    fontWeight: '700',
   },
   card: {
     backgroundColor: '#FFF',
@@ -792,5 +823,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1A1A1A',
     backgroundColor: '#FFF0EC',
+  },
+  // NEW STYLES for Stats Card
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  statLeft: {
+    flex: 1,
+  },
+  statRight: {
+    alignItems: 'flex-end',
+  },
+  statLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A1A',
+  },
+  statStatus: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  statSubText: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#FFE4DE',
+    marginVertical: 12,
   },
 });

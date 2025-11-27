@@ -12,7 +12,7 @@ export type AuthUser = {
   id: string;
   username: string;
   name: string;
-  date_of_birth: string | null;
+  date_of_birth: string;
   gender: string | null;
   height: number;
   weight: number;
