@@ -1,16 +1,19 @@
 import { API_URL } from './auth';
 
 export type HealthData = {
-  hr: number;
+  user_id: string;
+  device_id: string;
+  heart_rate: number;
   spo2: number;
-  timestamp: string;
 };
 
-export function createWebSocketConnection(token: string): WebSocket {
-  // Convert http:// to ws:// or https:// to wss://
-  const wsUrl = API_URL.replace(/^http/, 'ws');
-  const url = `${wsUrl}/ws/health?token=${encodeURIComponent(token)}`;
+const WS_BASE_URL = process.env.EXPO_PUBLIC_WS_URL || 'ws://172.20.10.3:8080';
+
+export function createWebSocketConnection(token: string, userId: string): WebSocket {
+  const wsUrl = `${WS_BASE_URL}/ws/user/${userId}?t=${token}`;
   
-  return new WebSocket(url);
+  console.log('🔌 Connecting to WebSocket:', wsUrl.replace(/\?t=.*/, '?t=***'));
+  
+  return new WebSocket(wsUrl);
 }
 

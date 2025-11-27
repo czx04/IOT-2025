@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { getCurrentUser, login as loginRequest, updateUserProfile, type AuthUser } from '@/lib/auth';
+import { getCurrentUser, login as loginRequest, updateUserProfile, isProfileIncomplete, type AuthUser } from '@/lib/auth';
 
 type AuthContextValue = {
   accessToken: string | null;
@@ -10,11 +10,13 @@ type AuthContextValue = {
   isInitializing: boolean;
   isLoading: boolean;
   error: string | null;
+  needsProfileCompletion: boolean;
   login: (username: string, password: string) => Promise<string>;
   logout: () => Promise<void>;
   clearError: () => void;
   refreshUser: () => Promise<void>;
   updateProfile: (userData: AuthUser) => Promise<string>;
+  completeProfile: (data: Partial<AuthUser>) => Promise<void>;
 };
 
 type PersistedAuth = {
@@ -34,6 +36,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
 
   const clearPersistedAuth = useCallback(async () => {
     await AsyncStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -55,6 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (token: string) => {
       const profile = await getCurrentUser(token);
       setUser(profile);
+      setNeedsProfileCompletion(isProfileIncomplete(profile));
     },
     []
   );
@@ -123,6 +127,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [accessToken, fetchUserProfile]
+  );
+
+  const completeProfile = useCallback(
+    async (data: Partial<AuthUser>) => {
+      if (!accessToken || !user) {
+        throw new Error('Not authenticated.');
+      }
+      
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const updatedUser: AuthUser = {
+          ...user,
+          name: data.name ?? user.name,
+          date_of_birth: data.date_of_birth ?? user.date_of_birth,
+          gender: data.gender ?? user.gender,
+          height: data.height ?? user.height,
+          weight: data.weight ?? user.weight,
+        };
+        
+        await updateUserProfile(accessToken, updatedUser);
+        await fetchUserProfile(accessToken);
+        setNeedsProfileCompletion(false);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Unable to update profile. Please try again.';
+        setError(message);
+        throw err instanceof Error ? err : new Error(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [accessToken, user, fetchUserProfile]
   );
 
   useEffect(() => {
@@ -206,13 +244,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isInitializing,
       isLoading,
       error,
+      needsProfileCompletion,
       login,
       logout,
       clearError,
       refreshUser,
       updateProfile,
+      completeProfile,
     }),
-    [accessToken, user, isTokenValid, isInitializing, isLoading, error, login, logout, clearError, refreshUser, updateProfile]
+    [
+      accessToken,
+      user,
+      isTokenValid,
+      isInitializing,
+      isLoading,
+      error,
+      needsProfileCompletion,
+      login,
+      logout,
+      clearError,
+      refreshUser,
+      updateProfile,
+      completeProfile,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

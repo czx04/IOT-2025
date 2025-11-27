@@ -1,7 +1,11 @@
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-type LoginResponse = {
-  access_token: string;
+export type LoginResponse = {
+  err: string;
+  body: {
+    access_token: string;
+  };
+  message: string;
 };
 
 export type AuthUser = {
@@ -12,6 +16,11 @@ export type AuthUser = {
   gender: string | null;
   height: number;
   weight: number;
+};
+export type UserProfileResponse = {
+  err: string; 
+  body: AuthUser; 
+  message: string; 
 };
 
 export type LatestData = {
@@ -33,6 +42,84 @@ export type GetMeasurementsParams = {
   limit?: number;
 };
 
+// Health Record Types
+export type HealthDataPoint = {
+  timestamp: string;
+  device_id: string;
+  user_id: string;
+  heart_rate?: {
+    value: number;
+    status: 'normal' | 'high' | 'low';
+  };
+  spo2?: {
+    value: number;
+    status: 'normal' | 'low';
+  };
+  temperature?: {
+    value: number;
+    status: 'normal' | 'high' | 'low';
+  };
+  blood_pressure?: {
+    systolic: number;
+    diastolic: number;
+    status: 'normal' | 'high' | 'low';
+  };
+  steps?: {
+    count: number;
+  };
+  calories?: {
+    estimated: number;
+  };
+};
+
+export type HealthRecord = {
+  id: string;
+  user_id: string;
+  device_id: string;
+  date: string;
+  data: HealthDataPoint[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type HealthRecordResponse = {
+  err: string;
+  body: HealthRecord;
+  message: string;
+};
+
+// Daily Summary Types
+export type DailySummary = {
+  id: string;
+  user_id: string;
+  date: string;
+  heart_rate?: {
+    avg: number;
+    min: number;
+    max: number;
+    resting_hr: number;
+    measurements: number;
+  };
+  spo2?: {
+    avg: number;
+    min: number;
+    max: number;
+    measurements: number;
+  };
+  calories?: {
+    total: number;
+    avg_per_hour: number;
+  };
+  created_at: string;
+  updated_at: string;
+};
+
+export type DailySummaryResponse = {
+  err: string;
+  body: DailySummary;
+  message: string;
+};
+
 type ErrorResponse = {
   message?: string;
 };
@@ -45,19 +132,25 @@ export async function login(username: string, password: string): Promise<string>
     },
     body: JSON.stringify({ username, password }),
   });
-
   const payload = await parseJson<LoginResponse | ErrorResponse>(response);
-
   if (!response.ok) {
     const message = (payload as ErrorResponse | null)?.message ?? 'Invalid username or password.';
     throw new Error(message);
   }
-
   if (!isLoginResponse(payload)) {
     throw new Error('Login response missing access token.');
   }
+  return payload.body.access_token;
+}
 
-  return payload.access_token;
+export function isProfileIncomplete(user: AuthUser): boolean {
+  // Check if profile has default values that need to be updated
+  const hasDefaultDateOfBirth = !user.date_of_birth || user.date_of_birth === '0001-01-01' || user.date_of_birth === '';
+  const hasDefaultGender = !user.gender || user.gender === '';
+  const hasDefaultHeight = user.height === 0;
+  const hasDefaultWeight = user.weight === 0;
+  
+  return hasDefaultDateOfBirth || hasDefaultGender || hasDefaultHeight || hasDefaultWeight;
 }
 
 export async function registerAccount(username: string, password: string, name: string) {
@@ -69,10 +162,12 @@ export async function registerAccount(username: string, password: string, name: 
     body: JSON.stringify({ username, password, name }),
   });
 
+  
+  console.log(response);
   const payload = await parseJson<{ message: string } | AuthUser | ErrorResponse>(response);
-
+  console.log(payload);
   if (!response.ok) {
-    const message = (payload as ErrorResponse | null)?.message ?? 'Unable to register account.';
+    const message = (payload as ErrorResponse | null)?.message ?? 'Unable to register account. Please try again.';
     throw new Error(message);
   }
 
@@ -88,37 +183,49 @@ export async function registerAccount(username: string, password: string, name: 
 }
 
 export async function getCurrentUser(token: string): Promise<AuthUser> {
-  const response = await fetch(`${API_URL}/users/me`, {
+  const response = await fetch(`${API_URL}/user/me`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
   });
-
-  const payload = await parseJson<AuthUser | ErrorResponse>(response);
+  const fullPayload = await parseJson<UserProfileResponse | ErrorResponse>(response);
 
   if (!response.ok) {
     const message =
-      (payload as ErrorResponse | null)?.message ?? 'Unable to load user profile. Please sign in.';
+      (fullPayload as ErrorResponse | null)?.message ?? 'Unable to load user profile. Please sign in.';
     throw new Error(message);
   }
-
-  if (!isAuthUser(payload)) {
-    throw new Error('User profile response is invalid.');
+  if (!isUserProfileResponse(fullPayload)) { 
+      throw new Error('User profile response is invalid or missing body data.');
   }
 
-  return payload;
+  const userPayload = (fullPayload as UserProfileResponse).body;
+
+  // ⭐️ CHỈNH SỬA 2: Kiểm tra tính hợp lệ của dữ liệu người dùng LẤY TỪ body
+  if (!isAuthUser(userPayload)) { 
+    throw new Error('User profile data inside body is invalid.');
+  }
+  
+  // ⭐️ CHỈNH SỬA 3: Trả về phần body chứa AuthUser
+  return userPayload;
 }
 
 export async function updateUserProfile(token: string, userData: AuthUser): Promise<string> {
-  const response = await fetch(`${API_URL}/users/me`, {
+  const response = await fetch(`${API_URL}/user/${userData.id}`, {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(userData),
+    body: JSON.stringify({
+      name: userData.name,
+      date_of_birth: userData.date_of_birth,
+      gender: userData.gender,
+      height: userData.height,
+      weight: userData.weight,
+    }),
   });
 
   const payload = await parseJson<{ message: string } | ErrorResponse>(response);
@@ -208,6 +315,70 @@ export async function getMeasurements(
   return payload;
 }
 
+export async function getHealthRecord(token: string, date?: string): Promise<HealthRecord> {
+  const queryParams = new URLSearchParams();
+  
+  if (date) {
+    queryParams.append('date', date);
+  }
+
+  const url = `${API_URL}/health-record${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = await parseJson<HealthRecordResponse | ErrorResponse>(response);
+
+  if (!response.ok) {
+    const message =
+      (payload as ErrorResponse | null)?.message ?? 'Không thể tải dữ liệu sức khỏe.';
+    throw new Error(message);
+  }
+
+  if (!isHealthRecordResponse(payload)) {
+    throw new Error('Health record response is invalid.');
+  }
+
+  return payload.body;
+}
+
+export async function getDailySummary(token: string, date?: string): Promise<DailySummary> {
+  const queryParams = new URLSearchParams();
+  
+  if (date) {
+    queryParams.append('date', date);
+  }
+
+  const url = `${API_URL}/summary${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const payload = await parseJson<DailySummaryResponse | ErrorResponse>(response);
+
+  if (!response.ok) {
+    const message =
+      (payload as ErrorResponse | null)?.message ?? 'Không thể tải tổng kết trong ngày.';
+    throw new Error(message);
+  }
+
+  if (!isDailySummaryResponse(payload)) {
+    throw new Error('Daily summary response is invalid.');
+  }
+
+  return payload.body;
+}
+
 async function parseJson<T>(response: Response): Promise<T | null> {
   try {
     return (await response.json()) as T;
@@ -217,7 +388,18 @@ async function parseJson<T>(response: Response): Promise<T | null> {
 }
 
 function isLoginResponse(payload: unknown): payload is LoginResponse {
-  return Boolean(payload && typeof (payload as LoginResponse).access_token === 'string');
+  return Boolean(payload && typeof (payload as LoginResponse).body.access_token === 'string');
+}
+function isUserProfileResponse(payload: unknown): payload is UserProfileResponse {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+  const candidate = payload as UserProfileResponse;
+  return (
+    typeof candidate.err === 'string' &&
+    typeof candidate.message === 'string' &&
+    isAuthUser(candidate.body)
+  );
 }
 
 function isAuthUser(payload: unknown): payload is AuthUser {
@@ -258,6 +440,40 @@ function isMeasurement(payload: unknown): payload is Measurement {
     typeof candidate.hr === 'number' &&
     typeof candidate.spo2 === 'number' &&
     typeof candidate.timestamp === 'string'
+  );
+}
+
+function isHealthRecordResponse(payload: unknown): payload is HealthRecordResponse {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+  const candidate = payload as HealthRecordResponse;
+  return (
+    typeof candidate.err === 'string' &&
+    typeof candidate.message === 'string' &&
+    candidate.body &&
+    typeof candidate.body === 'object' &&
+    typeof candidate.body.id === 'string' &&
+    typeof candidate.body.user_id === 'string' &&
+    typeof candidate.body.device_id === 'string' &&
+    typeof candidate.body.date === 'string' &&
+    Array.isArray(candidate.body.data)
+  );
+}
+
+function isDailySummaryResponse(payload: unknown): payload is DailySummaryResponse {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+  const candidate = payload as DailySummaryResponse;
+  return (
+    typeof candidate.err === 'string' &&
+    typeof candidate.message === 'string' &&
+    candidate.body &&
+    typeof candidate.body === 'object' &&
+    typeof candidate.body.id === 'string' &&
+    typeof candidate.body.user_id === 'string' &&
+    typeof candidate.body.date === 'string'
   );
 }
 
