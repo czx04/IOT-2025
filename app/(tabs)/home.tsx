@@ -1,17 +1,20 @@
 import { Redirect, useRouter } from 'expo-router'; // Thêm useRouter
 import * as React from 'react';
-import { ScrollView, View, StyleSheet, Dimensions, Animated, TouchableOpacity } from 'react-native';
+import { ScrollView, View, StyleSheet, Dimensions, Animated, TouchableOpacity, Modal, Pressable } from 'react-native';
 import Svg, { Path, Polyline, Line } from 'react-native-svg';
 
 import { ActivityIndicator } from '@/components/nativewindui/ActivityIndicator';
 import { Text } from '@/components/nativewindui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { createWebSocketConnection, type HealthData } from '@/lib/websocket';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { scanForDevices, connectAndFetchDeviceId, SERVICE_UUID, CHARACTERISTIC_UUID } from '@/lib/ble';
+import { addDevice } from '@/lib/device';
 import { updateWidgetData } from '@/lib/widget';
 
 const CHART_WIDTH = Dimensions.get('window').width - 120;
 const CHART_HEIGHT = 100;
-const MAX_DATA_POINTS = 20;
+const MAX_DATA_POINTS = 40;
 
 // --- ICONS MỚI & CŨ ---
 function HeartIcon({ size = 24, color = '#FF9A8B' }: { size?: number; color?: string }) {
@@ -174,11 +177,90 @@ function AuthorizedHome() {
     }
   };
 
-  const handleAddDevice = () => {
-    // Điều hướng đến màn hình thêm thiết bị (Ví dụ: /device/scan)
-    // router.push('/device/scan'); 
-    alert("Chức năng thêm thiết bị đang phát triển!");
+  // BLE State
+  const [isScanModalVisible, setIsScanModalVisible] = React.useState(false);
+  const [isScanning, setIsScanning] = React.useState(false);
+  const [bleDevices, setBleDevices] = React.useState<Record<string, { id: string; name: string | null }>>({});
+  const [selectedBleDeviceId, setSelectedBleDeviceId] = React.useState<string | null>(null);
+  const stopScanRef = React.useRef<(() => void) | null>(null);
+  const BLE_STORAGE_KEY = '@iot-app/ble-device-id';
+
+  const openScanModal = () => {
+    setIsScanModalVisible(true);
+    startScan();
   };
+
+  const closeScanModal = () => {
+    stopScan();
+    setIsScanModalVisible(false);
+  };
+
+  const startScan = () => {
+    if (isScanning) return;
+    setBleDevices({});
+    setIsScanning(true);
+    stopScanRef.current = scanForDevices({
+      namePrefix: 'ESP', // Adjust if needed for your ESP32 advertised name
+      onDevice: (device) => {
+        setBleDevices(prev => prev[device.id] ? prev : { ...prev, [device.id]: { id: device.id, name: device.name ?? 'Thiết bị không tên' } });
+      },
+      onError: (err) => {
+        console.error('[BLE] Scan error:', err);
+        setIsScanning(false);
+      }
+    });
+    // Auto-stop after 20s
+    setTimeout(() => stopScan(), 20000);
+  };
+
+  const stopScan = () => {
+    if (stopScanRef.current) {
+      stopScanRef.current();
+      stopScanRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
+  const selectDevice = async (deviceId: string) => {
+    stopScan();
+    try {
+      const result = await connectAndFetchDeviceId(deviceId);
+      if (!result.success || !result.deviceId) {
+        alert('Không lấy được deviceId: ' + (result.error || 'Unknown'));
+        return;
+      }
+      const actualId = result.deviceId;
+      setSelectedBleDeviceId(actualId);
+      await AsyncStorage.setItem(BLE_STORAGE_KEY, actualId);
+      // Register device with backend (no longer sending userID via BLE)
+      if (accessToken) {
+        try {
+          await addDevice(accessToken, actualId);
+          alert('Thiết bị đã được đăng ký: ' + actualId);
+        } catch (e) {
+          alert('Đăng ký thiết bị thất bại: ' + (e as Error).message);
+        }
+      }
+      setIsScanModalVisible(false);
+    } catch (err) {
+      alert('Lỗi khi kết nối thiết bị: ' + (err as Error).message);
+    }
+  };
+
+  // Auto-reconnect on load if stored device exists
+  React.useEffect(() => {
+    (async () => {
+      const storedId = await AsyncStorage.getItem(BLE_STORAGE_KEY);
+      if (storedId) {
+        setSelectedBleDeviceId(storedId);
+        // Attempt silent reconnect (just to ensure characteristic available); no alert.
+        const r = await connectAndFetchDeviceId(storedId);
+        if (!r.success) {
+          console.log('[BLE] Auto reconnect read failed:', r.error);
+        }
+      }
+    })();
+  }, []);
 
   // Update widget data when user enters the home screen
   React.useEffect(() => {
@@ -198,26 +280,51 @@ function AuthorizedHome() {
       setError(null);
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const data: HealthData = JSON.parse(event.data);
-        const now = Date.now();
-        setHealthData(data);
-        setHeartRateHistory(prev => [...prev, data.heart_rate].slice(-MAX_DATA_POINTS));
-        setSpo2History(prev => [...prev, data.spo2].slice(-MAX_DATA_POINTS));
+    // Tìm đến đoạn ws.onmessage trong useEffect (khoảng dòng 345) và thay thế bằng code này:
 
-        if (isTrackingRef.current) {
-          const timeDiffMinutes = (now - lastUpdateTime.current) / 1000 / 60;
-          if (timeDiffMinutes > 0 && timeDiffMinutes < 5) {
-            const cpm = calculateCaloriesPerMinute(data.heart_rate, age, weight, gender);
-            setCaloriesBurned(prev => prev + (cpm * timeDiffMinutes));
-          }
-        }
-        lastUpdateTime.current = now;
-      } catch (err) {
-        console.error('WebSocket Parse Error:', err);
-      }
+ws.onmessage = (event) => {
+  try {
+    const message = JSON.parse(event.data);
+    console.log('WS Message:', message);
+
+    const raw = message.data || {}; 
+
+    const normalized: HealthData = {
+      device_id: raw.device_id ?? raw.deviceId ?? '',
+      
+      // Lấy heart_rate (số nguyên hoặc float đều là number trong JS)
+      heart_rate: typeof raw.heart_rate === 'number' ? raw.heart_rate : (typeof raw.hr === 'number' ? raw.hr : 0),
+      
+      // Lấy SpO2 (Float)
+      spo2: typeof raw.spo2 === 'number' ? raw.spo2 : (typeof raw.SpO2 === 'number' ? raw.SpO2 : 0),
+      timestamp: raw.timestamp,
     };
+  
+    console.log('Normalized data:', normalized);
+
+    // --- Logic cập nhật state bên dưới giữ nguyên ---
+    const now = Date.now();
+    setHealthData(normalized);
+    
+    if (typeof normalized.heart_rate === 'number' && normalized.heart_rate > 0) {
+      setHeartRateHistory(prev => [...prev, normalized.heart_rate].slice(-MAX_DATA_POINTS));
+    }
+    if (typeof normalized.spo2 === 'number' && normalized.spo2 > 0) {
+      setSpo2History(prev => [...prev, normalized.spo2].slice(-MAX_DATA_POINTS));
+    }
+
+    if (isTrackingRef.current && normalized.heart_rate > 0) {
+      const timeDiffMinutes = (now - lastUpdateTime.current) / 1000 / 60;
+      if (timeDiffMinutes > 0 && timeDiffMinutes < 5) {
+        const cpm = calculateCaloriesPerMinute(normalized.heart_rate, age, weight, gender);
+        setCaloriesBurned(prev => prev + (cpm * timeDiffMinutes));
+      }
+    }
+    lastUpdateTime.current = now;
+  } catch (err) {
+    console.error('WebSocket Parse Error:', err);
+  }
+};
 
     ws.onerror = () => {
       setError('Lỗi kết nối');
@@ -255,20 +362,53 @@ function AuthorizedHome() {
             </View>
 
             {/* 2. Logic hiển thị: Nếu có thiết bị -> Hiện ID, Nếu không -> Hiện nút Thêm */}
-            {healthData?.device_id ? (
+            {selectedBleDeviceId ? (
               <View style={styles.deviceTag}>
-                <Text style={styles.deviceLabel}>ID:</Text>
-                <Text style={styles.deviceName}>{healthData.device_id}</Text>
+                <Text style={styles.deviceLabel}>BLE:</Text>
+                <Text style={styles.deviceName}>{selectedBleDeviceId.slice(0, 8)}...</Text>
               </View>
             ) : (
               <TouchableOpacity 
                 style={styles.addDeviceButton} 
-                onPress={handleAddDevice}
+                onPress={openScanModal}
               >
                 <PlusIcon size={14} color="#FFF" />
-                <Text style={styles.addDeviceText}>Thêm thiết bị</Text>
+                <Text style={styles.addDeviceText}>{isScanning ? 'Đang dò...' : 'Thêm thiết bị'}</Text>
               </TouchableOpacity>
             )}
+      {/* BLE Scan Modal */}
+      <Modal visible={isScanModalVisible} transparent animationType="fade">
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Chọn thiết bị ESP32</Text>
+            <Text style={styles.modalSubtitle}>Dò: {isScanning ? 'Đang chạy' : 'Đã dừng'}</Text>
+            <ScrollView style={{ maxHeight: 240, marginTop: 8 }}>
+              {Object.values(bleDevices).length === 0 && (
+                <Text style={styles.emptyText}>Chưa tìm thấy thiết bị...</Text>
+              )}
+              {Object.values(bleDevices).map(d => (
+                <Pressable key={d.id} style={styles.deviceRow} onPress={() => selectDevice(d.id)}>
+                  <Text style={styles.deviceRowName}>{d.name ?? 'Không tên'}</Text>
+                  <Text style={styles.deviceRowId}>{d.id.slice(0, 10)}...</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={closeScanModal}>
+                <Text style={styles.modalBtnText}>Đóng</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, isScanning ? styles.modalBtnDisabled : styles.modalBtnPrimary]}
+                disabled={isScanning}
+                onPress={startScan}
+              >
+                <Text style={styles.modalBtnText}>{isScanning ? 'Đang dò' : 'Dò lại'}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.hintText}>UUID Service: {SERVICE_UUID.slice(0, 8)}...\nUUID Char: {CHARACTERISTIC_UUID.slice(0, 8)}...</Text>
+          </View>
+        </View>
+      </Modal>
 
           </View>
         </View>
@@ -286,7 +426,7 @@ function AuthorizedHome() {
                 <View style={styles.cardHeaderText}>
                   <Text style={styles.cardTitle}>Nhịp tim</Text>
                   <View style={styles.currentValueRow}>
-                    <Text style={styles.currentValue}>{healthData.heart_rate.toFixed(0)}</Text>
+                    <Text style={styles.currentValue}>{(typeof healthData?.heart_rate === 'number' ? healthData.heart_rate : 0).toFixed(0)}</Text>
                     <Text style={styles.currentUnit}>bpm</Text>
                     <View style={[styles.zoneBadge, { backgroundColor: currentZone.color + '20' }]}>
                       <Text style={[styles.zoneText, { color: currentZone.color }]}>{currentZone.label}</Text>
@@ -342,7 +482,7 @@ function AuthorizedHome() {
                 <View style={styles.cardHeaderText}>
                   <Text style={styles.cardTitle}>Nồng độ oxy (SpO2)</Text>
                   <View style={styles.currentValueRow}>
-                    <Text style={styles.currentValue}>{healthData.spo2.toFixed(0)}</Text>
+                    <Text style={styles.currentValue}>{(typeof healthData?.spo2 === 'number' ? healthData.spo2 : 0).toFixed(0)}</Text>
                     <Text style={styles.currentUnit}>%</Text>
                   </View>
                 </View>
@@ -365,7 +505,7 @@ function AuthorizedHome() {
                   <HeartIcon size={32} color="#94A3B8" />
                 </View>
                 <Text style={styles.loadingText}>Chưa kết nối thiết bị</Text>
-                <TouchableOpacity style={styles.mainAddButton} onPress={handleAddDevice}>
+                <TouchableOpacity style={styles.mainAddButton} onPress={openScanModal}>
                   <Text style={styles.mainAddButtonText}>Kết nối thiết bị ngay</Text>
                 </TouchableOpacity>
               </>
@@ -490,5 +630,22 @@ const styles = StyleSheet.create({
   axisLabel: { fontSize: 10, color: '#94A3B8', fontWeight: '500' },
   miniButton: { width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 2 },
   miniButtonActive: { backgroundColor: '#EF4444' },
-  miniButtonInactive: { backgroundColor: '#10B981' }
+  miniButtonInactive: { backgroundColor: '#10B981' },
+
+  // Modal styles
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+  modalCard: { width: '86%', backgroundColor: '#FFF', borderRadius: 16, padding: 16, borderWidth: 2, borderColor: '#FFC9BE' },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
+  modalSubtitle: { fontSize: 12, color: '#64748B', marginTop: 4 },
+  emptyText: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginTop: 8 },
+  deviceRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  deviceRowName: { fontSize: 14, color: '#1A1A1A', fontWeight: '600' },
+  deviceRowId: { fontSize: 12, color: '#64748B' },
+  modalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 12 },
+  modalBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+  modalBtnPrimary: { backgroundColor: '#FF9A8B' },
+  modalBtnSecondary: { backgroundColor: '#FFE4E1' },
+  modalBtnDisabled: { backgroundColor: '#FECACA' },
+  modalBtnText: { color: '#1A1A1A', fontWeight: '700' },
+  hintText: { marginTop: 8, fontSize: 10, color: '#64748B' }
 });

@@ -1,10 +1,10 @@
 import { API_URL } from './auth';
 
 export type HealthData = {
-  user_id: string;
   device_id: string;
   heart_rate: number;
   spo2: number;
+  timestamp: number;
 };
 
 const WS_BASE_URL = process.env.EXPO_PUBLIC_WS_URL || 'ws://172.20.10.3:8080';

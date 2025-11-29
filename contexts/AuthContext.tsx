@@ -53,6 +53,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setError(null);
     await clearPersistedAuth();
+    // Remove BLE device ID on logout
+    try {
+      await AsyncStorage.removeItem('@iot-app/ble-device-id');
+    } catch {}
   }, [clearPersistedAuth]);
 
   const fetchUserProfile = useCallback(
