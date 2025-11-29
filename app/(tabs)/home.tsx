@@ -7,6 +7,7 @@ import { ActivityIndicator } from '@/components/nativewindui/ActivityIndicator';
 import { Text } from '@/components/nativewindui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import { createWebSocketConnection, type HealthData } from '@/lib/websocket';
+import { updateWidgetData } from '@/lib/widget';
 
 const CHART_WIDTH = Dimensions.get('window').width - 120;
 const CHART_HEIGHT = 100;
@@ -178,6 +179,15 @@ function AuthorizedHome() {
     // router.push('/device/scan'); 
     alert("Chức năng thêm thiết bị đang phát triển!");
   };
+
+  // Update widget data when user enters the home screen
+  React.useEffect(() => {
+    if (user) {
+      updateWidgetData(user).catch(err => 
+        console.error('[Home] Failed to update widget data:', err)
+      );
+    }
+  }, [user]);
 
   React.useEffect(() => {
     if (!accessToken || !user?.id) return;

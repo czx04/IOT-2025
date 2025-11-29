@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { getCurrentUser, login as loginRequest, updateUserProfile, isProfileIncomplete, type AuthUser } from '@/lib/auth';
+import { updateWidgetData } from '@/lib/widget';
 
 type AuthContextValue = {
   accessToken: string | null;
@@ -59,6 +60,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const profile = await getCurrentUser(token);
       setUser(profile);
       setNeedsProfileCompletion(isProfileIncomplete(profile));
+      
+      // Update widget data when profile is loaded
+      await updateWidgetData(profile);
     },
     []
   );
@@ -116,6 +120,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const message = await updateUserProfile(accessToken, userData);
         await fetchUserProfile(accessToken);
+        
+        // Update widget data after successful profile update
+        await updateWidgetData(userData);
+        
         return message;
       } catch (err) {
         const message =
