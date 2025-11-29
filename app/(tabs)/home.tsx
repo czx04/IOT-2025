@@ -147,6 +147,7 @@ export default function HomeScreen() {
   return <AuthorizedHome />;
 }
 
+
 function AuthorizedHome() {
   const router = useRouter(); // Khai báo Router
   const { accessToken, user } = useAuth();
@@ -184,6 +185,7 @@ function AuthorizedHome() {
   const [isScanning, setIsScanning] = React.useState(false);
   const [deviceList, setDeviceList] = React.useState<DeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = React.useState<string | null>(null);
+  const { isAuthenticated } = useAuth();
   const DEVICE_STORAGE_KEY = '@iot-app/device-id';
 
   const openScanModal = () => {
@@ -196,8 +198,17 @@ function AuthorizedHome() {
 
   const selectDevice = async (deviceId: string) => {
     setSelectedDeviceId(deviceId);
-    await AsyncStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
+    // await AsyncStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
     setIsScanModalVisible(false);
+    // Link device to user via backend
+    if (accessToken) {
+      try {
+        await addDevice(accessToken, deviceId);
+        alert('Thiết bị đã được liên kết thành công!');
+      } catch (e) {
+        alert('Lỗi liên kết thiết bị: ' + (e instanceof Error ? e.message : e));
+      }
+    }
   };
 
   // Fetch device list from backend
@@ -210,13 +221,23 @@ function AuthorizedHome() {
 
   // Auto-select stored device
   React.useEffect(() => {
+    let unsubscribed = false;
     (async () => {
-      const storedId = await AsyncStorage.getItem(DEVICE_STORAGE_KEY);
-      if (storedId) {
-        setSelectedDeviceId(storedId);
+      if (!isAuthenticated) {
+        setSelectedDeviceId(null);
+        // await AsyncStorage.removeItem(DEVICE_STORAGE_KEY);
+        return;
       }
+      // const storedId = await AsyncStorage.getItem(DEVICE_STORAGE_KEY);
+      // if (!unsubscribed && storedId) {
+      //   setSelectedDeviceId(storedId);
+      // }
     })();
-  }, []);
+    return () => {
+      unsubscribed = true;
+      setSelectedDeviceId(null);
+    };
+  }, [isAuthenticated]);
 
   // Update widget data when user enters the home screen
   React.useEffect(() => {
@@ -229,8 +250,20 @@ function AuthorizedHome() {
 
 
   React.useEffect(() => {
-    if (!accessToken || !user?.id) return;
+    if (!accessToken || !user?.id || !selectedDeviceId) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      return;
+    }
+    // Always close old ws before opening new
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     const ws = createWebSocketConnection(accessToken, user.id);
+    wsRef.current = ws;
 
     ws.onopen = () => {
       setIsConnected(true);
@@ -254,7 +287,7 @@ function AuthorizedHome() {
         console.log('Normalized data:', normalized);
 
         // --- Notification logic ---
-        if (normalized.heart_rate > 0 && (normalized.heart_rate < 40 || normalized.heart_rate > 160)) {
+        if (normalized.heart_rate > 0 && (normalized.heart_rate < 50 || normalized.heart_rate > 160)) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: 'Cảnh báo nhịp tim',
@@ -305,9 +338,12 @@ function AuthorizedHome() {
     };
 
     ws.onclose = () => setIsConnected(false);
-    wsRef.current = ws;
-    return () => wsRef.current?.close();
-  }, [accessToken, user?.id, age, weight, gender]);
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [accessToken, user?.id, age, weight, gender, selectedDeviceId]);
 
   const currentHR = healthData?.heart_rate || 0;
   const currentZone = getHeartRateZone(currentHR, age);
