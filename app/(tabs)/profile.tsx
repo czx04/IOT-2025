@@ -8,8 +8,7 @@ import { Text } from '@/components/nativewindui/Text';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AuthUser } from '@/lib/auth';
 
-const DEFAULT_AVATAR = 'https://scontent-hkg4-1.xx.fbcdn.net/v/t39.30808-6/401686719_1869956583402321_3996360809266226594_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=6ee11a&_nc_eui2=AeEKSLokGIEG3KJoPqkuWJu8I4xBfA-i9J8jjEF8D6L0nwp8iIm-8wNBi0xf8InbabTgygUA5HLgf86ikf3vac1f&_nc_ohc=FGs6clOoHawQ7kNvwHu3jfH&_nc_oc=Adm1jY0C1L9P3lCL7cJkk_3BW3ZxOWqQ88gv6G6hahRwP9_olYeRwfJPS1I657zDNqUE8C7RYo50cQVWQ0tq2W7u&_nc_zt=23&_nc_ht=scontent-hkg4-1.xx&_nc_gid=eE2oGR8oVlGAcGi742uRxQ&oh=00_AfhDCJzOXqgHDHyM3zjU3AFHmBzU1aX4Vf0GzALgUyB4BQ&oe=692A91A5';
-
+const DEFAULT_AVATAR = "https://scontent-hkg4-1.xx.fbcdn.net/v/t39.30808-6/401686719_1869956583402321_3996360809266226594_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=6ee11a&_nc_eui2=AeEKSLokGIEG3KJoPqkuWJu8I4xBfA-i9J8jjEF8D6L0nwp8iIm-8wNBi0xf8InbabTgygUA5HLgf86ikf3vac1f&_nc_ohc=vCUlhHkDG-0Q7kNvwFOM3Rw&_nc_oc=AdltHatPCFU3YAbPdiqb70FYWDDnJ4znp3r4uaxMJjWz_FzZEkAN85c3AKPKQ6NA6Avji_r4mh05B5Da-I8N-465&_nc_zt=23&_nc_ht=scontent-hkg4-1.xx&_nc_gid=_5f_mukf6N8ZY0OAl1QYtg&oh=00_AfiB4zt_q6Dwsym8vdTyjPBoFSQkpoaBntumub0eWfJIAg&oe=69308065";
 // Heart Icon Component
 function HeartIcon({ size = 24, color = '#FF9A8B' }: { size?: number; color?: string }) {
   return (
@@ -558,10 +557,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   avatar: {
-    width: 100,
-    height: 100,
+    width: 60,
+    height: 60,
     borderRadius: 50,
-    borderWidth: 4,
+    borderWidth: 2,
     borderColor: '#FFF',
     backgroundColor: '#FFF',
   },
