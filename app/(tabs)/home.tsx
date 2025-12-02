@@ -234,11 +234,17 @@ function AuthorizedHome() {
 
   // Fetch device list from backend
   React.useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !user) return;
+    
+    // Auto-select from user.device_ids if available
+    if (user.device_ids && Array.isArray(user.device_ids) && user.device_ids.length > 0) {
+      setSelectedDeviceId(user.device_ids[0]);
+    }
+    
     getDeviceList(accessToken)
       .then(setDeviceList)
       .catch(e => setError('Không lấy được danh sách thiết bị: ' + e.message));
-  }, [accessToken]);
+  }, [accessToken, user]);
 
   // Auto-select stored device
   React.useEffect(() => {
@@ -350,6 +356,13 @@ function AuthorizedHome() {
 
         // --- Logic cập nhật state bên dưới giữ nguyên ---
         const now = Date.now();
+        
+        // Only update data if device matches selected device
+        if (selectedDeviceId && normalized.device_id !== selectedDeviceId) {
+          console.log('Ignoring data from non-selected device:', normalized.device_id);
+          return;
+        }
+        
         setHealthData(normalized);
         if (typeof normalized.heart_rate === 'number' && normalized.heart_rate > 0) {
           setHeartRateHistory(prev => [...prev, normalized.heart_rate].slice(-MAX_DATA_POINTS));

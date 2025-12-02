@@ -134,6 +134,7 @@ export default function ProfileScreen() {
         gender: gender,
         height: parseFloat(height) || 160,
         weight: parseFloat(weight) || 60,
+        device_ids: false
       };
 
       await updateProfile(updatedData);

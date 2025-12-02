@@ -71,6 +71,8 @@ export default function DailyDataScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const RECORDS_PER_PAGE = 20;
 
   const formatDateAPI = (date: Date): string => {
     const year = date.getFullYear();
@@ -88,6 +90,7 @@ export default function DailyDataScreen() {
     return date.toLocaleTimeString('vi-VN', {
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
       hour12: false,
     });
   };
@@ -125,6 +128,7 @@ export default function DailyDataScreen() {
 
   useEffect(() => {
     fetchData(selectedDate);
+    setCurrentPage(1);
   }, [selectedDate, accessToken]);
 
   const onRefresh = () => {
@@ -227,10 +231,10 @@ export default function DailyDataScreen() {
                             <HeartIcon size={18} color="#FFF" />
                         </View>
                         <Text style={styles.cardLabel}>Nhịp tim TB</Text>
-                        <Text style={styles.cardValue}>{summary.heart_rate.avg.toFixed(0)} <Text style={styles.unit}>bpm</Text></Text>
+                        <Text style={styles.cardValue}>{summary.heart_rate.avg.toFixed(2)} <Text style={styles.unit}>bpm</Text></Text>
                         <View style={styles.minMaxRow}>
-                            <Text style={styles.minMaxText}>Min: {summary.heart_rate.min}</Text>
-                            <Text style={styles.minMaxText}>Max: {summary.heart_rate.max}</Text>
+                            <Text style={styles.minMaxText}>Min: {summary.heart_rate.min.toFixed(2)}</Text>
+                            <Text style={styles.minMaxText}>Max: {summary.heart_rate.max.toFixed(2)}</Text>
                         </View>
                     </View>
                 )}
@@ -242,10 +246,10 @@ export default function DailyDataScreen() {
                             <DropIcon size={18} color="#FFF" />
                         </View>
                         <Text style={styles.cardLabel}>SpO2 TB</Text>
-                        <Text style={styles.cardValue}>{summary.spo2.avg.toFixed(0)} <Text style={styles.unit}>%</Text></Text>
+                        <Text style={styles.cardValue}>{summary.spo2.avg.toFixed(2)} <Text style={styles.unit}>%</Text></Text>
                         <View style={styles.minMaxRow}>
-                            <Text style={styles.minMaxText}>Min: {summary.spo2.min}</Text>
-                            <Text style={styles.minMaxText}>Max: {summary.spo2.max}</Text>
+                            <Text style={styles.minMaxText}>Min: {summary.spo2.min.toFixed(2)}</Text>
+                            <Text style={styles.minMaxText}>Max: {summary.spo2.max.toFixed(2)}</Text>
                         </View>
                     </View>
                 )}
@@ -270,45 +274,77 @@ export default function DailyDataScreen() {
         )}
 
         {/* Detailed Records List */}
-        {!loading && healthRecord && healthRecord.data.length > 0 && (
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Chi tiết ({healthRecord.data.length} bản ghi)</Text>
-            
-            <View style={styles.listContainer}>
-                {healthRecord.data.slice(0, 20).map((record, index) => (
-                    <View key={`${record.timestamp}-${index}`} style={styles.recordRow}>
-                        <View style={styles.timeColumn}>
-                            <Text style={styles.timeText}>{formatTimeVN(record.timestamp)}</Text>
-                            <View style={styles.verticalLine} />
-                        </View>
-                        
-                        <View style={styles.dataColumn}>
-                            <View style={styles.dataBadgeContainer}>
-                                {record.heart_rate && (
-                                    <View style={[styles.dataBadge, getStatusStyle(record.heart_rate.status)]}>
-                                        <HeartIcon size={14} color="#64748B" />
-                                        <Text style={styles.badgeText}>{record.heart_rate.value} bpm</Text>
-                                    </View>
-                                )}
-                                {record.spo2 && (
-                                    <View style={[styles.dataBadge, getStatusStyle(record.spo2.status)]}>
-                                        <Text style={[styles.badgeLabel, {color:'#3B82F6'}]}>O₂</Text>
-                                        <Text style={styles.badgeText}>{record.spo2.value}%</Text>
-                                    </View>
-                                )}
-                            </View>
-                        </View>
-                    </View>
-                ))}
-                
-                {healthRecord.data.length > 20 && (
-                    <Text style={styles.moreText}>
-                        ...và {healthRecord.data.length - 20} bản ghi khác
+        {!loading && healthRecord && healthRecord.data.length > 0 && (() => {
+          const reversedData = [...healthRecord.data].reverse();
+          const totalPages = Math.ceil(reversedData.length / RECORDS_PER_PAGE);
+          const startIndex = (currentPage - 1) * RECORDS_PER_PAGE;
+          const endIndex = startIndex + RECORDS_PER_PAGE;
+          const currentRecords = reversedData.slice(startIndex, endIndex);
+          
+          return (
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionTitle}>Chi tiết ({healthRecord.data.length} bản ghi)</Text>
+              
+              <View style={styles.listContainer}>
+                  {currentRecords.map((record, index) => (
+                      <View key={`${record.timestamp}-${index}`} style={styles.recordRow}>
+                          <View style={styles.timeColumn}>
+                              <Text style={styles.timeText}>{formatTimeVN(record.timestamp)}</Text>
+                              <View style={styles.verticalLine} />
+                          </View>
+                          
+                          <View style={styles.dataColumn}>
+                              <View style={styles.dataBadgeContainer}>
+                                  {record.heart_rate && (
+                                      <View style={[styles.dataBadge, getStatusStyle(record.heart_rate.status)]}>
+                                          <HeartIcon size={14} color="#64748B" />
+                                          <Text style={styles.badgeText}>{record.heart_rate.value.toFixed(2)} bpm</Text>
+                                      </View>
+                                  )}
+                                  {record.spo2 && (
+                                      <View style={[styles.dataBadge, getStatusStyle(record.spo2.status)]}>
+                                          <Text style={[styles.badgeLabel, {color:'#3B82F6'}]}>O₂</Text>
+                                          <Text style={styles.badgeText}>{record.spo2.value.toFixed(2)}%</Text>
+                                      </View>
+                                  )}
+                              </View>
+                          </View>
+                      </View>
+                  ))}
+              </View>
+              
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <View style={styles.paginationContainer}>
+                  <TouchableOpacity 
+                    style={[styles.pageButton, currentPage === 1 && styles.pageButtonDisabled]}
+                    onPress={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeft size={20} color={currentPage === 1 ? '#CBD5E1' : '#FF9A8B'} />
+                  </TouchableOpacity>
+                  
+                  <View style={styles.pageInfo}>
+                    <Text style={styles.pageText}>
+                      Trang {currentPage} / {totalPages}
                     </Text>
-                )}
+                    <Text style={styles.pageSubtext}>
+                      {startIndex + 1}-{Math.min(endIndex, reversedData.length)} của {reversedData.length}
+                    </Text>
+                  </View>
+                  
+                  <TouchableOpacity 
+                    style={[styles.pageButton, currentPage === totalPages && styles.pageButtonDisabled]}
+                    onPress={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronRight size={20} color={currentPage === totalPages ? '#CBD5E1' : '#FF9A8B'} />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
-          </View>
-        )}
+          );
+        })()}
     </ScrollView>
   );
 }
@@ -336,7 +372,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
     paddingTop: 60,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   
   // Header Styles
@@ -560,10 +596,10 @@ const styles = StyleSheet.create({
   dataColumn: {
     flex: 1,
     paddingBottom: 16,
+    paddingLeft: 12,
   },
   dataBadgeContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
     gap: 8,
   },
   dataBadge: {
@@ -574,6 +610,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     gap: 6,
+    minWidth: 85,
   },
   badgeText: {
     fontSize: 13,
@@ -584,11 +621,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  moreText: {
-    textAlign: 'center',
-    fontSize: 12,
+  
+  // Pagination Styles
+  paginationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  pageButton: {
+    padding: 10,
+    backgroundColor: '#FFF0EC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FFC9BE',
+    marginBottom: 9,
+  },
+  pageButtonDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    opacity: 0.5,
+  },
+  pageInfo: {
+    alignItems: 'center',
+  },
+  pageText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  pageSubtext: {
+    fontSize: 11,
     color: '#94A3B8',
-    fontStyle: 'italic',
-    marginTop: 8,
-  }
+    marginTop: 2,
+  },
 });

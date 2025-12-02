@@ -9,6 +9,7 @@ export type LoginResponse = {
 };
 
 export type AuthUser = {
+  device_ids: boolean;
   id: string;
   username: string;
   name: string;
