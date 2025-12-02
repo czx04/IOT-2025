@@ -208,13 +208,12 @@ function AuthorizedHome() {
   };
 
   const selectDevice = async (deviceId: string) => {
-    setSelectedDeviceId(deviceId);
-    // await AsyncStorage.setItem(DEVICE_STORAGE_KEY, deviceId);
     setIsScanModalVisible(false);
     // Link device to user via backend
     if (accessToken) {
       try {
         await addDevice(accessToken, deviceId);
+        setSelectedDeviceId(deviceId);
         alert('Thiết bị đã được liên kết thành công!');
       } catch (e) {
         alert('Lỗi liên kết thiết bị: ' + (e instanceof Error ? e.message : e));
@@ -296,7 +295,7 @@ function AuthorizedHome() {
       }
       return;
     }
-    // Always close old ws before opening new
+    // Close old ws when dependencies change (including selectedDeviceId)
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -382,7 +381,7 @@ function AuthorizedHome() {
       ws.close();
       wsRef.current = null;
     };
-  }, [accessToken, user?.id, age, weight, gender]);
+  }, [accessToken, user?.id, age, weight, gender, selectedDeviceId]);
 
   const currentHR = healthData?.heart_rate || 0;
   const currentZone = getHeartRateZone(currentHR, age);
