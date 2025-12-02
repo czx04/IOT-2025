@@ -11,8 +11,19 @@ import { createWebSocketConnection, type HealthData } from '@/lib/websocket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { connectAndFetchDeviceId } from '@/lib/ble';
 import { getDeviceList, type DeviceInfo } from '@/lib/device-list';
-import { addDevice } from '@/lib/device';
+import { addDevice, unlinkDevice } from '@/lib/device';
 import { updateWidgetData } from '@/lib/widget';
+
+// Ensure notifications are shown in foreground (iOS) and play sound/badge
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 const CHART_WIDTH = Dimensions.get('window').width - 120;
 const CHART_HEIGHT = 100;
@@ -211,6 +222,17 @@ function AuthorizedHome() {
     }
   };
 
+  const handleUnlinkDevice = async () => {
+    if (!selectedDeviceId || !accessToken) return;
+    try {
+      await unlinkDevice(accessToken, selectedDeviceId);
+      setSelectedDeviceId(null);
+      alert('Đã huỷ liên kết thiết bị!');
+    } catch (e) {
+      alert('Lỗi huỷ liên kết: ' + (e instanceof Error ? e.message : e));
+    }
+  };
+
   // Fetch device list from backend
   React.useEffect(() => {
     if (!accessToken) return;
@@ -239,6 +261,23 @@ function AuthorizedHome() {
     };
   }, [isAuthenticated]);
 
+  // Request notification permission when opening home
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Notifications.requestPermissionsAsync({
+          ios: { allowAlert: true, allowBadge: true, allowSound: true },
+        });
+        if (status !== 'granted') {
+          console.warn('[Notifications] Permission not granted:', status);
+          setError('Vui lòng bật thông báo trong Settings để nhận cảnh báo');
+        }
+      } catch (e) {
+        console.error('[Notifications] request permission error', e);
+      }
+    })();
+  }, []);
+
   // Update widget data when user enters the home screen
   React.useEffect(() => {
     if (user) {
@@ -250,7 +289,7 @@ function AuthorizedHome() {
 
 
   React.useEffect(() => {
-    if (!accessToken || !user?.id || !selectedDeviceId) {
+    if (!accessToken || !user?.id) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -343,7 +382,7 @@ function AuthorizedHome() {
       ws.close();
       wsRef.current = null;
     };
-  }, [accessToken, user?.id, age, weight, gender, selectedDeviceId]);
+  }, [accessToken, user?.id, age, weight, gender]);
 
   const currentHR = healthData?.heart_rate || 0;
   const currentZone = getHeartRateZone(currentHR, age);
@@ -372,9 +411,14 @@ function AuthorizedHome() {
 
             {/* 2. Logic hiển thị: Nếu có thiết bị -> Hiện ID, Nếu không -> Hiện nút Thêm */}
             {selectedDeviceId ? (
-              <View style={styles.deviceTag}>
-                <Text style={styles.deviceLabel}>ID:</Text>
-                <Text style={styles.deviceName}>{selectedDeviceId.slice(0, 8)}...</Text>
+              <View style={styles.deviceTagContainer}>
+                <View style={styles.deviceTag}>
+                  <Text style={styles.deviceLabel}>ID:</Text>
+                  <Text style={styles.deviceName}>{selectedDeviceId.slice(0, 8)}...</Text>
+                </View>
+                <TouchableOpacity style={styles.unlinkButton} onPress={handleUnlinkDevice}>
+                  <Text style={styles.unlinkButtonText}>×</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity 
@@ -426,7 +470,7 @@ function AuthorizedHome() {
                 <View style={styles.cardHeaderText}>
                   <Text style={styles.cardTitle}>Nhịp tim</Text>
                   <View style={styles.currentValueRow}>
-                    <Text style={styles.currentValue}>{(typeof healthData?.heart_rate === 'number' ? healthData.heart_rate : 0).toFixed(0)}</Text>
+                    <Text style={styles.currentValue}>{(typeof healthData?.heart_rate === 'number' ? healthData.heart_rate : 0).toFixed(2)}</Text>
                     <Text style={styles.currentUnit}>bpm</Text>
                     <View style={[styles.zoneBadge, { backgroundColor: currentZone.color + '20' }]}>
                       <Text style={[styles.zoneText, { color: currentZone.color }]}>{currentZone.label}</Text>
@@ -482,7 +526,7 @@ function AuthorizedHome() {
                 <View style={styles.cardHeaderText}>
                   <Text style={styles.cardTitle}>Nồng độ oxy (SpO2)</Text>
                   <View style={styles.currentValueRow}>
-                    <Text style={styles.currentValue}>{(typeof healthData?.spo2 === 'number' ? healthData.spo2 : 0).toFixed(0)}</Text>
+                    <Text style={styles.currentValue}>{(typeof healthData?.spo2 === 'number' ? healthData.spo2 : 0).toFixed(2)}</Text>
                     <Text style={styles.currentUnit}>%</Text>
                   </View>
                 </View>
@@ -551,11 +595,18 @@ const styles = StyleSheet.create({
   statusDotDisconnected: { backgroundColor: '#EF4444' },
   statusText: { fontSize: 13, color: '#FFF', fontWeight: '600' },
 
+  // Container cho device tag và nút unlink
+  deviceTagContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+
   // Thẻ thiết bị (ID)
   deviceTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.15)', // Màu tối hơn chút để nổi bật trên nền hồng
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
@@ -564,6 +615,24 @@ const styles = StyleSheet.create({
   },
   deviceLabel: { fontSize: 12, color: 'rgba(255, 255, 255, 0.9)', marginRight: 4, fontWeight: '500' },
   deviceName: { fontSize: 12, color: '#FFF', fontWeight: '700' },
+
+  // Nút unlink
+  unlinkButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  unlinkButtonText: {
+    fontSize: 18,
+    color: '#FFF',
+    fontWeight: '700',
+    lineHeight: 20,
+  },
 
   // Nút Thêm thiết bị trên Header
   addDeviceButton: {
