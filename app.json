@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "iot-app",
+    "name": "Health88",
     "slug": "iot-app",
     "version": "1.0.0",
     "scheme": "iot-app",
@@ -21,7 +21,7 @@
       "tsconfigPaths": true
     },
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon2.png",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash.png",
@@ -38,7 +38,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon2.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.anonymous.iotapp"

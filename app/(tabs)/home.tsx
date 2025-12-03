@@ -1,7 +1,7 @@
 import { Redirect, useRouter } from 'expo-router'; // Thêm useRouter
 import * as React from 'react';
 import * as Notifications from 'expo-notifications';
-import { ScrollView, View, StyleSheet, Dimensions, Animated, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { ScrollView, View, StyleSheet, Dimensions, Animated, TouchableOpacity, Modal, Pressable, TextInput } from 'react-native';
 import Svg, { Path, Polyline, Line } from 'react-native-svg';
 
 import { ActivityIndicator } from '@/components/nativewindui/ActivityIndicator';
@@ -196,6 +196,7 @@ function AuthorizedHome() {
   const [isScanning, setIsScanning] = React.useState(false);
   const [deviceList, setDeviceList] = React.useState<DeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = React.useState<string | null>(null);
+  const [deviceIdInput, setDeviceIdInput] = React.useState('');
   const { isAuthenticated } = useAuth();
   const DEVICE_STORAGE_KEY = '@iot-app/device-id';
 
@@ -207,13 +208,18 @@ function AuthorizedHome() {
     setIsScanModalVisible(false);
   };
 
-  const selectDevice = async (deviceId: string) => {
-    setIsScanModalVisible(false);
+  const selectDevice = async () => {
+    if (!deviceIdInput.trim()) {
+      alert('Vui lòng nhập ID thiết bị!');
+      return;
+    }
     // Link device to user via backend
     if (accessToken) {
       try {
-        await addDevice(accessToken, deviceId);
-        setSelectedDeviceId(deviceId);
+        await addDevice(accessToken, deviceIdInput.trim());
+        setSelectedDeviceId(deviceIdInput.trim());
+        setIsScanModalVisible(false);
+        setDeviceIdInput('');
         alert('Thiết bị đã được liên kết thành công!');
       } catch (e) {
         alert('Lỗi liên kết thiết bị: ' + (e instanceof Error ? e.message : e));
@@ -226,6 +232,13 @@ function AuthorizedHome() {
     try {
       await unlinkDevice(accessToken, selectedDeviceId);
       setSelectedDeviceId(null);
+      // Reset all data and charts
+      setHealthData(null);
+      setHeartRateHistory([]);
+      setSpo2History([]);
+      setCaloriesBurned(0);
+      setIsTracking(false);
+      isTrackingRef.current = false;
       alert('Đã huỷ liên kết thiết bị!');
     } catch (e) {
       alert('Lỗi huỷ liên kết: ' + (e instanceof Error ? e.message : e));
@@ -328,7 +341,7 @@ function AuthorizedHome() {
           timestamp: raw.timestamp,
         };
 
-        console.log('Normalized data:', normalized);
+        // console.log('Normalized data:', normalized);
 
         // --- Notification logic ---
         if (normalized.heart_rate > 0 && (normalized.heart_rate < 50 || normalized.heart_rate > 160)) {
@@ -438,28 +451,37 @@ function AuthorizedHome() {
                 onPress={openScanModal}
               >
                 <PlusIcon size={14} color="#FFF" />
-                <Text style={styles.addDeviceText}>Chọn thiết bị</Text>
+                <Text style={styles.addDeviceText}>Thêm thiết bị</Text>
               </TouchableOpacity>
             )}
-      {/* Device List Modal */}
+      {/* Device ID Input Modal */}
       <Modal visible={isScanModalVisible} transparent animationType="fade">
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Chọn thiết bị</Text>
-            <ScrollView style={{ maxHeight: 240, marginTop: 8 }}>
-              {deviceList.length === 0 && (
-                <Text style={styles.emptyText}>Không có thiết bị nào...</Text>
-              )}
-              {deviceList.map(d => (
-                <Pressable key={d.deviceId} style={styles.deviceRow} onPress={() => selectDevice(d.deviceId)}>
-                  <Text style={styles.deviceRowName}>{d.deviceName || d.deviceId}</Text>
-                  <Text style={styles.deviceRowId}>{d.deviceId.slice(0, 10)}...</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+            <Text style={styles.modalTitle}>Nhập ID thiết bị</Text>
+            <Text style={styles.modalSubtitle}>Nhập mã ID thiết bị của bạn để kết nối</Text>
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Device ID:</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Ví dụ: dv-id-001"
+                placeholderTextColor="#94A3B8"
+                value={deviceIdInput}
+                onChangeText={setDeviceIdInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={[styles.modalBtn, styles.modalBtnSecondary]} onPress={closeScanModal}>
-                <Text style={styles.modalBtnText}>Đóng</Text>
+                <Text style={styles.modalBtnText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalBtn, styles.modalBtnPrimary, !deviceIdInput.trim() && styles.modalBtnDisabled]} 
+                onPress={selectDevice}
+                disabled={!deviceIdInput.trim()}
+              >
+                <Text style={[styles.modalBtnText, styles.modalBtnTextPrimary]}>Kết nối</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -715,18 +737,32 @@ const styles = StyleSheet.create({
 
   // Modal styles
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
-  modalCard: { width: '86%', backgroundColor: '#FFF', borderRadius: 16, padding: 16, borderWidth: 2, borderColor: '#FFC9BE' },
-  modalTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A1A' },
-  modalSubtitle: { fontSize: 12, color: '#64748B', marginTop: 4 },
+  modalCard: { width: '86%', backgroundColor: '#FFF', borderRadius: 16, padding: 20, borderWidth: 2, borderColor: '#FFC9BE' },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', marginBottom: 4 },
+  modalSubtitle: { fontSize: 13, color: '#64748B', marginBottom: 16 },
+  inputContainer: { marginBottom: 16 },
+  inputLabel: { fontSize: 14, fontWeight: '600', color: '#1A1A1A', marginBottom: 8 },
+  textInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#1A1A1A',
+    fontWeight: '500',
+  },
   emptyText: { fontSize: 12, color: '#94A3B8', textAlign: 'center', marginTop: 8 },
   deviceRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   deviceRowName: { fontSize: 14, color: '#1A1A1A', fontWeight: '600' },
   deviceRowId: { fontSize: 12, color: '#64748B' },
-  modalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 12 },
-  modalBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+  modalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginTop: 8 },
+  modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
   modalBtnPrimary: { backgroundColor: '#FF9A8B' },
-  modalBtnSecondary: { backgroundColor: '#FFE4E1' },
-  modalBtnDisabled: { backgroundColor: '#FECACA' },
-  modalBtnText: { color: '#1A1A1A', fontWeight: '700' },
+  modalBtnSecondary: { backgroundColor: '#F1F5F9' },
+  modalBtnDisabled: { backgroundColor: '#FED7D7', opacity: 0.6 },
+  modalBtnText: { color: '#1A1A1A', fontWeight: '700', fontSize: 14 },
+  modalBtnTextPrimary: { color: '#FFF' },
   hintText: { marginTop: 8, fontSize: 10, color: '#64748B' }
 });
